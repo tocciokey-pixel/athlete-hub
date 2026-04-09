@@ -499,12 +499,12 @@ const App = () => {
                           <div className="px-1 py-3 flex justify-between items-center border-b-2 border-slate-200">
                             <span className="font-black text-slate-700 text-sm uppercase">{dateStr}</span>
                           </div>
-                          {dayMeals.sort((a, b) => b.time.localeCompare(a.time)).map(m => (
+                          {dayMeals.sort((a, b) => (b.time || '00:00').localeCompare(a.time || '00:00')).map(m => (
                             <div key={m.id} className="bg-white p-4 rounded-3xl flex items-center justify-between border border-slate-100 shadow-sm group hover:shadow-md transition-shadow">
                               <div className="flex items-center gap-4">
                                 {m.image ? <img src={m.image} className="w-14 h-14 rounded-2xl object-cover" /> : <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center text-green-600"><Utensils className="w-5 h-5" /></div>}
                                 <div>
-                                  <div className="text-[9px] font-black text-slate-300 uppercase">{m.time}</div>
+                                  <div className="text-[9px] font-black text-slate-300 uppercase">{m.time || '--:--'}</div>
                                   <p className="text-sm font-black text-slate-700 leading-tight">{m.name || '記録なし'}</p>
                                 </div>
                               </div>
@@ -685,6 +685,7 @@ const App = () => {
 
                 {modalType === 'match' && (
                   <>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date / Start Time</label>
                     <div className="grid grid-cols-2 gap-3">
                       <input type="date" value={inputs.match.date} onChange={e => setInputs({...inputs, match: {...inputs.match, date: e.target.value}})} className="w-full p-4 bg-slate-100 rounded-2xl font-black text-base" />
                       <input type="time" value={inputs.match.time || ''} onChange={e => setInputs({...inputs, match: {...inputs.match, time: e.target.value}})} className="w-full p-4 bg-slate-100 rounded-2xl font-black text-base" />
