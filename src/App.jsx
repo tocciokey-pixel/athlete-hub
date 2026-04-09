@@ -88,6 +88,7 @@ const App = () => {
 
   // 入力フォーム（下書き機能のために一括管理）
   const [inputs, setInputs] = useState(getDefaultInputs());
+  const [planUpdatedAt, setPlanUpdatedAt] = useState(null);
 
   // UI管理
   const [modalType, setModalType] = useState(null);
@@ -655,8 +656,32 @@ const App = () => {
               <div className="space-y-4 animate-in fade-in">
                 <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-black text-slate-800 tracking-tight uppercase">Today Plan</h3>
-                    <span className="text-[10px] font-black px-3 py-1.5 rounded-full bg-blue-50 text-blue-600">{dailyPlan.phase}</span>
+                    <div>
+                      <h3 className="font-black text-slate-800 tracking-tight uppercase">Today Plan</h3>
+                      {planUpdatedAt && (
+                        <p className="text-[9px] font-bold text-slate-300 mt-0.5">更新: {planUpdatedAt}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black px-3 py-1.5 rounded-full bg-blue-50 text-blue-600">{dailyPlan.phase}</span>
+                      <button
+                        onClick={() => {
+                          const jstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }));
+                          const hh = String(jstNow.getHours()).padStart(2, '0');
+                          const mm = String(jstNow.getMinutes()).padStart(2, '0');
+                          setPlanUpdatedAt(`${hh}:${mm}`);
+                        }}
+                        className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-blue-100 text-slate-400 hover:text-blue-600 rounded-xl active:scale-90 transition-all"
+                        title="プランを再計算"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                          <path d="M21 3v5h-5"/>
+                          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+                          <path d="M8 16H3v5"/>
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                   {[dailyPlan.breakfast, dailyPlan.lunch, dailyPlan.dinner].map((meal, idx) => (
                     <div key={idx} className="bg-slate-50 rounded-2xl p-4 mb-3">
