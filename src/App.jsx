@@ -407,7 +407,22 @@ const App = () => {
   const nextM = matches.find(m => new Date(m.date) >= new Date().setHours(0,0,0,0)) || null;
   const daysUntil = nextM ? Math.ceil((new Date(nextM.date) - new Date()) / (1000 * 60 * 60 * 24)) : null;
   const todayTotalCals = meals.filter(m => m.date === getTodayJST()).reduce((s, m) => s + (m.calories || 0), 0);
-  const dailyPlan = buildDailyPlan();
+  
+  let dailyPlan;
+  try {
+    dailyPlan = buildDailyPlan();
+  } catch (err) {
+    console.error('buildDailyPlan failed:', err);
+    dailyPlan = {
+      phase: '通常期',
+      breakfast: buildMeal('07:00', 'エラー', ['データ読み込み中'], ['米']),
+      lunch: buildMeal('12:30', 'エラー', ['データ読み込み中'], ['米']),
+      dinner: buildMeal('19:00', 'エラー', ['データ読み込み中'], ['米']),
+      snack: { timing: '16:00', options: ['計算中...'] },
+      reasons: ['献立計算エラー。ページを再読み込みしてください。'],
+      matchDayGuide: null
+    };
+  }
 
   const NavButton = ({ active, onClick, icon, label }) => (
     <button onClick={onClick} className={`flex flex-col items-center justify-center flex-1 transition-all ${active ? 'text-blue-600 scale-105 font-black' : 'text-slate-400 opacity-60'}`}>
@@ -456,7 +471,7 @@ const App = () => {
                   </div>
                   <div className="h-44 w-full">
                     {weightData.length > 1 ? (
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={176}>
                         <LineChart data={weightData}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                           <XAxis dataKey="date" tickFormatter={v => v.split('-').slice(1).join('/')} axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#94a3b8'}} />
@@ -497,56 +512,80 @@ const App = () => {
             )}
 
             {activeTab === 'meals' && (() => {
-              const mealsByDate = {};
-              meals.forEach(m => {
-                const dateKey = typeof m?.date === 'string' && m.date ? m.date : getTodayJST();
-                if (!mealsByDate[dateKey]) mealsByDate[dateKey] = [];
-                mealsByDate[dateKey].push(m);
-              });
-              const sortedDates = Object.keys(mealsByDate).sort((a, b) => {
-                const aTime = new Date(a).getTime();
-                const bTime = new Date(b).getTime();
-                return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
-              });
-              return (
-                <div className="space-y-4 animate-in slide-in-from-bottom-4">
-                  <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-xl flex justify-between items-center relative overflow-hidden">
-                    <Brain className="absolute -right-4 -bottom-4 w-24 h-24 opacity-10" />
-                    <div><h3 className="font-black text-xl leading-none tracking-tighter uppercase">Meal Log</h3></div>
-                    <button onClick={() => openNewModal('meal')} className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg active:scale-90 transition-all z-10"><Plus className="w-6 h-6" /></button>
-                  </div>
-                  <div className="space-y-6">
-                    {sortedDates.length > 0 ? sortedDates.map(date => {
-                      const dayMeals = mealsByDate[date];
-                      const dateStr = typeof date === 'string' && date.includes('-')
-                        ? date.split('-').reverse().join('/')
-                        : String(date);
-                      return (
-                        <div key={date} className="space-y-3">
-                          <div className="px-1 py-3 flex justify-between items-center border-b-2 border-slate-200">
-                            <span className="font-black text-slate-700 text-sm uppercase">{dateStr}</span>
-                          </div>
-                          {dayMeals.sort((a, b) => String(b?.time ?? '00:00').localeCompare(String(a?.time ?? '00:00'))).map((m, i) => (
-                            <div key={m?.id || `${date}-${i}`} className="bg-white p-4 rounded-3xl flex items-center justify-between border border-slate-100 shadow-sm group hover:shadow-md transition-shadow">
-                              <div className="flex items-center gap-4">
-                                {m?.image ? <img src={m.image} className="w-14 h-14 rounded-2xl object-cover" /> : <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center text-green-600"><Utensils className="w-5 h-5" /></div>}
-                                <div>
-                                  <div className="text-[9px] font-black text-slate-300 uppercase">{String(m?.time ?? '--:--')}</div>
-                                  <p className="text-sm font-black text-slate-700 leading-tight">{m?.name || '記録なし'}</p>
+              try {
+                const mealsByDate = {};
+                (meals || []).forEach(m => {
+                  const dateKey = (m && typeof m.date === 'string' && m.date) ? m.date : getTodayJST();
+                  if (!mealsByDate[dateKey]) mealsByDate[dateKey] = [];
+                  mealsByDate[dateKey].push(m);
+                });
+                const sortedDates = Object.keys(mealsByDate).sort((a, b) => {
+                  const aTime = new Date(a).getTime();
+                  const bTime = new Date(b).getTime();
+                  return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+                });
+                return (
+                  <div className="space-y-4 animate-in slide-in-from-bottom-4">
+                    <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-xl flex justify-between items-center relative overflow-hidden">
+                      <Brain className="absolute -right-4 -bottom-4 w-24 h-24 opacity-10" />
+                      <div><h3 className="font-black text-xl leading-none tracking-tighter uppercase">Meal Log</h3></div>
+                      <button onClick={() => openNewModal('meal')} className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg active:scale-90 transition-all z-10"><Plus className="w-6 h-6" /></button>
+                    </div>
+                    <div className="space-y-6">
+                      {sortedDates.length > 0 ? sortedDates.map(date => {
+                        try {
+                          const dayMeals = (mealsByDate[date] || []).filter(m => m && typeof m === 'object');
+                          if (!dayMeals.length) return null;
+                          const dateStr = typeof date === 'string' && date.includes('-')
+                            ? date.split('-').reverse().join('/')
+                            : String(date);
+                          return (
+                            <div key={date} className="space-y-3">
+                              <div className="px-1 py-3 flex justify-between items-center border-b-2 border-slate-200">
+                                <span className="font-black text-slate-700 text-sm uppercase">{dateStr}</span>
+                              </div>
+                              {dayMeals.sort((a, b) => {
+                                const aTime = String(a?.time ?? '00:00');
+                                const bTime = String(b?.time ?? '00:00');
+                                return bTime.localeCompare(aTime);
+                              }).map((m, i) => (
+                                <div key={m?.id || `${date}-${i}`} className="bg-white p-4 rounded-3xl flex items-center justify-between border border-slate-100 shadow-sm group hover:shadow-md transition-shadow">
+                                  <div className="flex items-center gap-4">
+                                    {m?.image ? <img src={m.image} className="w-14 h-14 rounded-2xl object-cover" /> : <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center text-green-600"><Utensils className="w-5 h-5" /></div>}
+                                    <div>
+                                      <div className="text-[9px] font-black text-slate-300 uppercase">{String(m?.time ?? '--:--')}</div>
+                                      <p className="text-sm font-black text-slate-700 leading-tight">{m?.name || '記録なし'}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-1 shrink-0">
+                                    <button onClick={() => openEditModal('meal', m)} className="p-2 text-slate-300 hover:text-blue-500 active:scale-75 transition-all"><Edit3 className="w-4 h-4" /></button>
+                                    <button onClick={() => m?.id && deleteItem('meal', m.id)} className="p-2 text-slate-300 hover:text-red-500 active:scale-75 transition-all"><Trash2 className="w-4 h-4" /></button>
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="flex gap-1 shrink-0">
-                                <button onClick={() => openEditModal('meal', m)} className="p-2 text-slate-300 hover:text-blue-500 active:scale-75 transition-all"><Edit3 className="w-4 h-4" /></button>
-                                <button onClick={() => m?.id && deleteItem('meal', m.id)} className="p-2 text-slate-300 hover:text-red-500 active:scale-75 transition-all"><Trash2 className="w-4 h-4" /></button>
-                              </div>
+                              ))}
                             </div>
-                          ))}
+                          );
+                        } catch (innerErr) {
+                          console.error(`Error rendering meal date ${date}:`, innerErr);
+                          return null;
+                        }
+                      }) : (
+                        <div className="text-center py-10 text-slate-400">
+                          <p className="text-sm font-black">記録がありません</p>
                         </div>
-                      );
-                    }) : <div className="text-center py-24 text-slate-300 opacity-30 uppercase tracking-widest"><Utensils className="w-10 h-10 mx-auto mb-2" /><p className="text-xs font-black">No meal records</p></div>}
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
+                );
+              } catch (err) {
+                console.error('MEALS tab error:', err);
+                return (
+                  <div className="text-center py-10 text-red-500">
+                    <p className="text-sm font-black">MEALSタブの読み込みエラー</p>
+                    <p className="text-xs mt-2">{err?.message}</p>
+                  </div>
+                );
+              }
             })()}
 
             {activeTab === 'planPlus' && (
