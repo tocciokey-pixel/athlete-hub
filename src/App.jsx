@@ -478,10 +478,15 @@ const App = () => {
             {activeTab === 'meals' && (() => {
               const mealsByDate = {};
               meals.forEach(m => {
-                if (!mealsByDate[m.date]) mealsByDate[m.date] = [];
-                mealsByDate[m.date].push(m);
+                const dateKey = typeof m?.date === 'string' && m.date ? m.date : getTodayJST();
+                if (!mealsByDate[dateKey]) mealsByDate[dateKey] = [];
+                mealsByDate[dateKey].push(m);
               });
-              const sortedDates = Object.keys(mealsByDate).sort((a, b) => new Date(b) - new Date(a));
+              const sortedDates = Object.keys(mealsByDate).sort((a, b) => {
+                const aTime = new Date(a).getTime();
+                const bTime = new Date(b).getTime();
+                return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+              });
               return (
                 <div className="space-y-4 animate-in slide-in-from-bottom-4">
                   <div className="bg-slate-900 rounded-[32px] p-6 text-white shadow-xl flex justify-between items-center relative overflow-hidden">
@@ -492,19 +497,20 @@ const App = () => {
                   <div className="space-y-6">
                     {sortedDates.length > 0 ? sortedDates.map(date => {
                       const dayMeals = mealsByDate[date];
-                      const dailyTotal = dayMeals.reduce((sum, m) => sum + (parseInt(m.calories) || 0), 0);
-                      const dateStr = date.split('-').reverse().join('/');
+                      const dateStr = typeof date === 'string' && date.includes('-')
+                        ? date.split('-').reverse().join('/')
+                        : String(date);
                       return (
                         <div key={date} className="space-y-3">
                           <div className="px-1 py-3 flex justify-between items-center border-b-2 border-slate-200">
                             <span className="font-black text-slate-700 text-sm uppercase">{dateStr}</span>
                           </div>
-                          {dayMeals.sort((a, b) => (b.time || '00:00').localeCompare(a.time || '00:00')).map(m => (
+                          {dayMeals.sort((a, b) => String(b?.time ?? '00:00').localeCompare(String(a?.time ?? '00:00'))).map(m => (
                             <div key={m.id} className="bg-white p-4 rounded-3xl flex items-center justify-between border border-slate-100 shadow-sm group hover:shadow-md transition-shadow">
                               <div className="flex items-center gap-4">
                                 {m.image ? <img src={m.image} className="w-14 h-14 rounded-2xl object-cover" /> : <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center text-green-600"><Utensils className="w-5 h-5" /></div>}
                                 <div>
-                                  <div className="text-[9px] font-black text-slate-300 uppercase">{m.time || '--:--'}</div>
+                                  <div className="text-[9px] font-black text-slate-300 uppercase">{String(m?.time ?? '--:--')}</div>
                                   <p className="text-sm font-black text-slate-700 leading-tight">{m.name || '記録なし'}</p>
                                 </div>
                               </div>
