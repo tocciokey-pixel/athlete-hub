@@ -29,6 +29,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate Gemini API key secret
+        env:
+          VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
+        run: |
+          if [ -z "$VITE_GEMINI_API_KEY" ]; then
+            echo "VITE_GEMINI_API_KEY is missing or empty in GitHub Secrets"
+            exit 1
+          fi
+
       - name: Build
         run: npm run build
         env:
