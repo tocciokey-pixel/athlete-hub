@@ -289,32 +289,70 @@ ${upcomingMatches}
         }
       };
 
-      const callGemini = async (modelName) => {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+      const parseJsonSafely = (raw) => {
+        try {
+          return raw ? JSON.parse(raw) : {};
+        } catch {
+          return {};
+        }
+      };
+
+      const listAvailableModels = async (apiVersion) => {
+        const response = await fetch(`https://generativelanguage.googleapis.com/${apiVersion}/models?key=${apiKey}`);
+        const raw = await response.text();
+        const parsed = parseJsonSafely(raw);
+        const modelNames = (parsed.models || [])
+          .map((m) => (m.name || '').replace(/^models\//, ''))
+          .filter(Boolean);
+        return { response, modelNames, parsed };
+      };
+
+      const callGemini = async (apiVersion, modelName) => {
+        const response = await fetch(`https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestBody)
         });
 
         const raw = await response.text();
-        let parsed = {};
-        try {
-          parsed = raw ? JSON.parse(raw) : {};
-        } catch {
-          parsed = {};
-        }
-
+        const parsed = parseJsonSafely(raw);
         return { response, parsed };
       };
 
-      let responsePack = await callGemini('gemini-2.0-flash');
-      if (!responsePack.response.ok && responsePack.response.status === 404) {
-        responsePack = await callGemini('gemini-1.5-flash');
+      const preferredModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+      const apiVersions = ['v1', 'v1beta'];
+
+      let responsePack = null;
+      let lastError = null;
+
+      for (const apiVersion of apiVersions) {
+        const listPack = await listAvailableModels(apiVersion);
+        const listIsUsable = listPack.response.ok && listPack.modelNames.length > 0;
+        const modelsToTry = listIsUsable
+          ? preferredModels.filter((m) => listPack.modelNames.includes(m))
+          : preferredModels;
+
+        for (const model of modelsToTry) {
+          responsePack = await callGemini(apiVersion, model);
+          if (responsePack.response.ok) {
+            break;
+          }
+          const apiMessage = responsePack.parsed?.error?.message || `HTTP ${responsePack.response.status}`;
+          lastError = `${apiVersion}/${model}: ${apiMessage}`;
+        }
+
+        if (responsePack?.response?.ok) {
+          break;
+        }
+
+        if (!listPack.response.ok) {
+          const listErr = listPack.parsed?.error?.message || `HTTP ${listPack.response.status}`;
+          lastError = `${apiVersion}/models.list: ${listErr}`;
+        }
       }
 
-      if (!responsePack.response.ok) {
-        const apiMessage = responsePack.parsed?.error?.message || `HTTP ${responsePack.response.status}`;
-        throw new Error(`Gemini APIエラー: ${apiMessage}`);
+      if (!responsePack?.response?.ok) {
+        throw new Error(`Gemini APIエラー: ${lastError || '利用可能なモデルが見つかりません'}`);
       }
 
       const result = responsePack.parsed;
@@ -326,8 +364,19 @@ ${upcomingMatches}
       setChatMessages([...newMsgs, { role: 'ai', text: aiText }]);
     } catch (e) {
       console.error('Chat error:', e);
-      const reason = e?.message ? `\n${e.message}` : '';
-      setChatMessages([...newMsgs, { role: 'ai', text: `エラーが発生しました。もう一度試してください。${reason}` }]);
+      const rawMessage = String(e?.message || '');
+      const lower = rawMessage.toLowerCase();
+      let friendly = `エラーが発生しました。もう一度試してください。\n${rawMessage}`;
+
+      if (lower.includes('reported as leaked') || lower.includes('api key invalid') || lower.includes('api_key_invalid')) {
+        friendly = 'APIキーが無効化されています（漏洩判定）。Google AI Studioで新しいキーを再発行し、GitHub Secretsの VITE_GEMINI_API_KEY を更新して再デプロイしてください。';
+      } else if (lower.includes('quota') || lower.includes('rate limit') || lower.includes('resource_exhausted')) {
+        friendly = 'Gemini APIの利用上限に達しました。時間を空けて再試行するか、請求設定・上限設定を見直してください。';
+      } else if (lower.includes('is not found for api version') || lower.includes('not supported for generatecontent')) {
+        friendly = '選択したモデルがこのAPIバージョンで利用できません。利用可能モデルを再取得して再試行してください。';
+      }
+
+      setChatMessages([...newMsgs, { role: 'ai', text: friendly }]);
     } finally {
       setIsAiProcessing(false);
     }
