@@ -200,7 +200,11 @@ const App = () => {
   const sendChatMessage = async () => {
     if (!chatInput && !chatImage) return;
     if (!apiKey) {
-      alert('Gemini APIキーが設定されていません（.env ファイルを確認してください）');
+      const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
+      const msg = isGitHubPages
+        ? 'Gemini APIキーが設定されていません（GitHub Secrets の VITE_GEMINI_API_KEY を確認して再デプロイしてください）'
+        : 'Gemini APIキーが設定されていません（.env の VITE_GEMINI_API_KEY を確認してください）';
+      alert(msg);
       return;
     }
     const userMsg = chatInput;
