@@ -206,12 +206,13 @@ const App = () => {
     const userMsg = chatInput;
     const userImage = chatImage;
     const userImageFile = chatImageFile;
+    const mealSuggestionMode = isMealSuggestionMode;
     setIsAiProcessing(true);
     const newMsgs = [...chatMessages, {
       role: 'user',
       text: userMsg,
       image: userImage,
-      isMealSuggestion: isMealSuggestionMode
+      isMealSuggestion: mealSuggestionMode
     }];
     setChatMessages(newMsgs);
     setChatInput("");
@@ -221,9 +222,14 @@ const App = () => {
     try {
       // 献立相談モードの場合、特別なプロンプトを作成
       let prompt = userMsg;
-      let systemPrompt = `管理栄養士です。年齢:${profile.age},目標:${profile.targetWeight}kg,競技:${profile.lifestyle},悩み:${profile.improvementPoints}`;
+      let systemPrompt = `あなたはプロの管理栄養士です。常に食事管理の文脈で回答してください。
+回答ルール:
+- まず結論を1行で述べる
+- 次に「推定PFC(たんぱく質/脂質/炭水化物)」と「改善ポイント」を簡潔に示す
+- 励ます口調で短く実用的に伝える
+ユーザー情報: 年齢${profile.age || '未設定'}、目標体重${profile.targetWeight || '未設定'}kg、競技${profile.lifestyle || '未設定'}、悩み${profile.improvementPoints || '未設定'}`;
 
-      if (isMealSuggestionMode) {
+      if (mealSuggestionMode) {
         const recentMeals = meals.slice(-10).map(m => `${m.date} ${m.time}: ${m.name}`).join('\n');
         const recentWeights = weightData.slice(-5).map(w => `${w.date}: ${w.weight}kg`).join('\n');
         const upcomingMatches = matches.filter(m => new Date(m.date) >= new Date()).slice(0, 3).map(m => `${m.date}: ${m.title}`).join('\n');
@@ -256,36 +262,72 @@ ${upcomingMatches}
         prompt = userMsg || "冷蔵庫の中身から今日の献立を提案してください。";
       }
 
-      const contents = [{ parts: [{ text: prompt }] }];
+      const historyContents = chatMessages
+        .filter(m => m.role === 'user' || m.role === 'ai')
+        .slice(-12)
+        .map(m => ({
+          role: m.role === 'ai' ? 'model' : 'user',
+          parts: [{ text: m.text || (m.image ? '画像を送信しました' : '') }]
+        }));
+
+      const currentUserParts = [{ text: prompt || '食事についてアドバイスしてください。' }];
       if (userImageFile) {
         const base64 = await toBase64(userImageFile);
-        contents[0].parts.push({
+        currentUserParts.push({
           inlineData: { mimeType: userImageFile.type, data: base64 }
         });
       }
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents,
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2048
-          }
-        })
-      });
+      const contents = [...historyContents, { role: 'user', parts: currentUserParts }];
 
-      const result = await res.json();
-      if (!result.candidates || !result.candidates[0]?.content?.parts?.[0]?.text) {
-        throw new Error('Invalid response from Gemini API');
+      const requestBody = {
+        contents,
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 2048
+        }
+      };
+
+      const callGemini = async (modelName) => {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+
+        const raw = await response.text();
+        let parsed = {};
+        try {
+          parsed = raw ? JSON.parse(raw) : {};
+        } catch {
+          parsed = {};
+        }
+
+        return { response, parsed };
+      };
+
+      let responsePack = await callGemini('gemini-2.0-flash');
+      if (!responsePack.response.ok && responsePack.response.status === 404) {
+        responsePack = await callGemini('gemini-1.5-flash');
       }
+
+      if (!responsePack.response.ok) {
+        const apiMessage = responsePack.parsed?.error?.message || `HTTP ${responsePack.response.status}`;
+        throw new Error(`Gemini APIエラー: ${apiMessage}`);
+      }
+
+      const result = responsePack.parsed;
+      if (!result.candidates || !result.candidates[0]?.content?.parts?.[0]?.text) {
+        throw new Error('Geminiの応答形式が不正です');
+      }
+
       const aiText = result.candidates[0].content.parts[0].text;
       setChatMessages([...newMsgs, { role: 'ai', text: aiText }]);
     } catch (e) {
       console.error('Chat error:', e);
-      setChatMessages([...newMsgs, { role: 'ai', text: 'エラーが発生しました。もう一度試してください。' }]);
+      const reason = e?.message ? `\n${e.message}` : '';
+      setChatMessages([...newMsgs, { role: 'ai', text: `エラーが発生しました。もう一度試してください。${reason}` }]);
     } finally {
       setIsAiProcessing(false);
     }
