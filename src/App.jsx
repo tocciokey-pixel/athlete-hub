@@ -488,7 +488,7 @@ ${upcomingMatches}
                       type="text"
                       value={chatInput}
                       onChange={e => setChatInput(e.target.value)}
-                      onKeyPress={e => e.key === 'Enter' && !isAiProcessing && sendChatMessage()}
+                      onKeyDown={e => e.key === 'Enter' && !isAiProcessing && sendChatMessage()}
                       placeholder="栄養士に相談..."
                       className="flex-1 bg-transparent border-none focus:ring-0 text-base px-3 font-bold"
                       disabled={isAiProcessing}
@@ -500,14 +500,20 @@ ${upcomingMatches}
                     >
                       <Utensils className="w-4 h-4" />
                     </button>
-                    <button onClick={sendChatMessage} disabled={isAiProcessing} className="p-3 bg-blue-600 text-white rounded-full active:scale-95 disabled:opacity-50">
+                    <button
+                      onClick={sendChatMessage}
+                      disabled={isAiProcessing}
+                      className="px-3 py-2 bg-blue-600 text-white rounded-full active:scale-95 disabled:opacity-50 flex items-center gap-1.5 min-w-[72px] justify-center"
+                      title="送信"
+                    >
                       <Send className="w-4 h-4" />
+                      <span className="text-xs font-black">送信</span>
                     </button>
                   </div>
                   {isMealSuggestionMode && (
                     <div className="text-center">
                       <p className="text-xs font-black text-green-600 bg-green-50 px-3 py-2 rounded-full inline-block">
-                        🍳 献立相談モード：冷蔵庫写真を添付して相談してください
+                        🍳 献立相談モード：写真は任意です（テキストだけでも相談できます）
                       </p>
                     </div>
                   )}
