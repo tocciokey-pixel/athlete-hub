@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { 
   Trophy, Utensils, Scale, Calendar, Plus, ChevronRight, 
-  Target, Zap, Clock, Info, AlertCircle, Save, MessageSquare, Brain, Camera, Image as ImageIcon, X, User, Activity, Edit3, Trash2, Send, Loader2
+  Target, Zap, Clock, Info, AlertCircle, Save, Brain, Camera, X, User, Activity, Edit3, Trash2
 } from 'lucide-react';
 
 // --- Firebase 設定 ---
@@ -24,7 +24,6 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'athlete-hub-final';
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || ""; // Gemini APIキー
 
 // --- 東京時間ユーティリティ ---
 const getTodayJST = () => {
@@ -50,7 +49,6 @@ const App = () => {
   const [weightData, setWeightData] = useState([]);
   const [meals, setMeals] = useState([]);
   const [matches, setMatches] = useState([]);
-  const [chatMessages, setChatMessages] = useState([{ role: 'ai', text: '専属のアドバイザーです。食事や体調、試合の準備について何でも相談してください！' }]);
 
   // 入力フォーム（下書き機能のために一括管理）
   const [inputs, setInputs] = useState({
@@ -62,14 +60,8 @@ const App = () => {
   // UI管理
   const [modalType, setModalType] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
-  const [isAiProcessing, setIsAiProcessing] = useState(false);
-  const [chatInput, setChatInput] = useState("");
-  const [chatImage, setChatImage] = useState(null);
-  const [chatImageFile, setChatImageFile] = useState(null);
-  const [isMealSuggestionMode, setIsMealSuggestionMode] = useState(false);
   
   const fileInputRef = useRef(null);
-  const chatEndRef = useRef(null);
 
   // 1. Firebase 認証 (RULE 3)
   useEffect(() => {
@@ -130,14 +122,6 @@ const App = () => {
     return () => clearTimeout(timer);
   }, [inputs, user]);
 
-  // --- ヘルパー関数 ---
-  const toBase64 = (file) => new Promise((r, j) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => r(reader.result.split(',')[1]);
-    reader.onerror = e => j(e);
-  });
-
   // --- 保存アクション ---
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -197,193 +181,65 @@ const App = () => {
     setInputs(prev => ({ ...prev, [type]: defaultInputs[type] }));
   };
 
-  const sendChatMessage = async () => {
-    if (!chatInput && !chatImage) return;
-    if (!apiKey) {
-      const isGitHubPages = typeof window !== 'undefined' && window.location.hostname.includes('github.io');
-      const msg = isGitHubPages
-        ? 'Gemini APIキーが設定されていません（GitHub Secrets の VITE_GEMINI_API_KEY を確認して再デプロイしてください）'
-        : 'Gemini APIキーが設定されていません（.env の VITE_GEMINI_API_KEY を確認してください）';
-      alert(msg);
-      return;
+  const getPlanPhase = (daysUntilMatch) => {
+    if (daysUntilMatch !== null && daysUntilMatch <= 2) return '調整期';
+    if (daysUntilMatch !== null && daysUntilMatch <= 7) return '準備期';
+    return '通常期';
+  };
+
+  const getWeightTrend = () => {
+    if (!weightData.length) return { diffToTarget: 0, trend7d: 0 };
+    const current = weightData[weightData.length - 1].weight;
+    const target = parseFloat(profile.targetWeight || 0) || current;
+    const last7 = weightData.slice(-7).map(w => w.weight);
+    const avg7 = last7.length ? last7.reduce((s, v) => s + v, 0) / last7.length : current;
+    return { diffToTarget: current - target, trend7d: current - avg7 };
+  };
+
+  const analyzeMealPattern = () => {
+    const recentNames = meals.slice(0, 10).map(m => (m.name || '').toLowerCase());
+    const proteinLack = !recentNames.some(n => /(鶏|魚|卵|豆腐|納豆|ツナ|鮭|さば|肉|豚|牛)/.test(n));
+    const vegLack = !recentNames.some(n => /(野菜|サラダ|ブロッコリー|ほうれん草|キャベツ|トマト|きのこ)/.test(n));
+    const breakfastCount = meals.slice(0, 14).filter(m => (m.time || '00:00') < '10:30').length;
+    return { proteinLack, vegLack, breakfastLack: breakfastCount < 3 };
+  };
+
+  const buildDailyPlan = () => {
+    const weight = getWeightTrend();
+    const mealPattern = analyzeMealPattern();
+    const phase = getPlanPhase(daysUntil);
+
+    const riceLevel = weight.diffToTarget > 1 ? '少なめ' : weight.diffToTarget < -1 ? '多め' : '標準';
+
+    let breakfast = `ごはん(${riceLevel})・卵料理・味噌汁・果物`;
+    let lunch = '鶏むね丼・野菜小鉢・スープ';
+    let dinner = '魚定食・野菜2品・汁物';
+    let snack = 'ヨーグルト or バナナ';
+
+    if (phase === '準備期') {
+      breakfast = `ごはん(${riceLevel === '少なめ' ? '標準' : '多め'})・納豆・卵・味噌汁`;
+      lunch = '親子丼・サラダ・果物';
+      dinner = '鮭ごはん・ささみ副菜・温野菜';
+      snack = 'おにぎり小 + 牛乳';
     }
-    const userMsg = chatInput;
-    const userImage = chatImage;
-    const userImageFile = chatImageFile;
-    const mealSuggestionMode = isMealSuggestionMode;
-    setIsAiProcessing(true);
-    const newMsgs = [...chatMessages, {
-      role: 'user',
-      text: userMsg,
-      image: userImage,
-      isMealSuggestion: mealSuggestionMode
-    }];
-    setChatMessages(newMsgs);
-    setChatInput("");
-    setChatImage(null);
-    setChatImageFile(null);
-    setIsMealSuggestionMode(false);
-    try {
-      // 献立相談モードの場合、特別なプロンプトを作成
-      let prompt = userMsg;
-      let systemPrompt = `あなたはプロの管理栄養士です。常に食事管理の文脈で回答してください。
-回答ルール:
-- まず結論を1行で述べる
-- 次に「推定PFC(たんぱく質/脂質/炭水化物)」と「改善ポイント」を簡潔に示す
-- 励ます口調で短く実用的に伝える
-ユーザー情報: 年齢${profile.age || '未設定'}、目標体重${profile.targetWeight || '未設定'}kg、競技${profile.lifestyle || '未設定'}、悩み${profile.improvementPoints || '未設定'}`;
 
-      if (mealSuggestionMode) {
-        const recentMeals = meals.slice(-10).map(m => `${m.date} ${m.time}: ${m.name}`).join('\n');
-        const recentWeights = weightData.slice(-5).map(w => `${w.date}: ${w.weight}kg`).join('\n');
-        const upcomingMatches = matches.filter(m => new Date(m.date) >= new Date()).slice(0, 3).map(m => `${m.date}: ${m.title}`).join('\n');
-
-        systemPrompt = `あなたはプロの管理栄養士です。以下の情報を基に、冷蔵庫の中身の写真から最適な献立を提案してください。
-
-【ユーザー情報】
-年齢: ${profile.age}
-目標体重: ${profile.targetWeight}kg
-競技: ${profile.lifestyle}
-悩み: ${profile.improvementPoints}
-
-【最近の食事履歴（最新10件）】
-${recentMeals}
-
-【体重推移（最新5件）】
-${recentWeights}
-
-【今後の試合予定】
-${upcomingMatches}
-
-【提案のポイント】
-- 栄養バランスの取れた献立を提案
-- カロリー目安を考慮
-- 競技に適した栄養素を考慮
-- 冷蔵庫の中身を最大限活用
-- 調理時間も考慮
-- 具体的なレシピを提案`;
-
-        prompt = userMsg || "冷蔵庫の中身から今日の献立を提案してください。";
-      }
-
-      const historyContents = chatMessages
-        .filter(m => m.role === 'user' || m.role === 'ai')
-        .slice(-12)
-        .map(m => ({
-          role: m.role === 'ai' ? 'model' : 'user',
-          parts: [{ text: m.text || (m.image ? '画像を送信しました' : '') }]
-        }));
-
-      const currentUserParts = [{ text: prompt || '食事についてアドバイスしてください。' }];
-      if (userImageFile) {
-        const base64 = await toBase64(userImageFile);
-        currentUserParts.push({
-          inlineData: { mimeType: userImageFile.type, data: base64 }
-        });
-      }
-
-      const contents = [...historyContents, { role: 'user', parts: currentUserParts }];
-
-      const requestBody = {
-        contents,
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 2048
-        }
-      };
-
-      const parseJsonSafely = (raw) => {
-        try {
-          return raw ? JSON.parse(raw) : {};
-        } catch {
-          return {};
-        }
-      };
-
-      const listAvailableModels = async (apiVersion) => {
-        const response = await fetch(`https://generativelanguage.googleapis.com/${apiVersion}/models?key=${apiKey}`);
-        const raw = await response.text();
-        const parsed = parseJsonSafely(raw);
-        const modelNames = (parsed.models || [])
-          .map((m) => (m.name || '').replace(/^models\//, ''))
-          .filter(Boolean);
-        return { response, modelNames, parsed };
-      };
-
-      const callGemini = async (apiVersion, modelName) => {
-        const response = await fetch(`https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
-        });
-
-        const raw = await response.text();
-        const parsed = parseJsonSafely(raw);
-        return { response, parsed };
-      };
-
-      const preferredModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
-      const apiVersions = ['v1', 'v1beta'];
-
-      let responsePack = null;
-      let lastError = null;
-
-      for (const apiVersion of apiVersions) {
-        const listPack = await listAvailableModels(apiVersion);
-        const listIsUsable = listPack.response.ok && listPack.modelNames.length > 0;
-        const modelsToTry = listIsUsable
-          ? preferredModels.filter((m) => listPack.modelNames.includes(m))
-          : preferredModels;
-
-        for (const model of modelsToTry) {
-          responsePack = await callGemini(apiVersion, model);
-          if (responsePack.response.ok) {
-            break;
-          }
-          const apiMessage = responsePack.parsed?.error?.message || `HTTP ${responsePack.response.status}`;
-          lastError = `${apiVersion}/${model}: ${apiMessage}`;
-        }
-
-        if (responsePack?.response?.ok) {
-          break;
-        }
-
-        if (!listPack.response.ok) {
-          const listErr = listPack.parsed?.error?.message || `HTTP ${listPack.response.status}`;
-          lastError = `${apiVersion}/models.list: ${listErr}`;
-        }
-      }
-
-      if (!responsePack?.response?.ok) {
-        throw new Error(`Gemini APIエラー: ${lastError || '利用可能なモデルが見つかりません'}`);
-      }
-
-      const result = responsePack.parsed;
-      if (!result.candidates || !result.candidates[0]?.content?.parts?.[0]?.text) {
-        throw new Error('Geminiの応答形式が不正です');
-      }
-
-      const aiText = result.candidates[0].content.parts[0].text;
-      setChatMessages([...newMsgs, { role: 'ai', text: aiText }]);
-    } catch (e) {
-      console.error('Chat error:', e);
-      const rawMessage = String(e?.message || '');
-      const lower = rawMessage.toLowerCase();
-      let friendly = `エラーが発生しました。もう一度試してください。\n${rawMessage}`;
-
-      if (lower.includes('reported as leaked') || lower.includes('api key invalid') || lower.includes('api_key_invalid')) {
-        friendly = 'APIキーが無効化されています（漏洩判定）。Google AI Studioで新しいキーを再発行し、GitHub Secretsの VITE_GEMINI_API_KEY を更新して再デプロイしてください。';
-      } else if (lower.includes('quota') || lower.includes('rate limit') || lower.includes('resource_exhausted')) {
-        friendly = 'Gemini APIの利用上限に達しました。時間を空けて再試行するか、請求設定・上限設定を見直してください。';
-      } else if (lower.includes('is not found for api version') || lower.includes('not supported for generatecontent')) {
-        friendly = '選択したモデルがこのAPIバージョンで利用できません。利用可能モデルを再取得して再試行してください。';
-      }
-
-      setChatMessages([...newMsgs, { role: 'ai', text: friendly }]);
-    } finally {
-      setIsAiProcessing(false);
+    if (phase === '調整期') {
+      breakfast = 'おかゆ・卵・味噌汁';
+      lunch = 'うどん + 鶏むね';
+      dinner = `白米(${riceLevel === '多め' ? '標準' : riceLevel})・白身魚・消化の良い副菜`;
+      snack = 'カステラ少量 + 水分補給';
     }
+
+    const reasons = [
+      phase === '調整期' ? '試合直前のため、消化しやすさを優先しています。' : phase === '準備期' ? '試合準備のため、エネルギー確保を重視しています。' : '通常期のため、体重管理と栄養バランスを重視しています。'
+    ];
+    if (Math.abs(weight.diffToTarget) >= 0.5) reasons.push(`目標体重との差 ${weight.diffToTarget > 0 ? '+' : ''}${weight.diffToTarget.toFixed(1)}kg を反映しています。`);
+    if (Math.abs(weight.trend7d) >= 0.3) reasons.push(`直近7日トレンド ${weight.trend7d > 0 ? '+' : ''}${weight.trend7d.toFixed(1)}kg を考慮しています。`);
+    if (mealPattern.proteinLack) reasons.push('直近の記録でたんぱく質が少ないため、主菜を強化しています。');
+    if (mealPattern.vegLack) reasons.push('野菜不足を補うため、副菜を増やしています。');
+    if (mealPattern.breakfastLack) reasons.push('朝食欠食の傾向があるため、朝に簡単な定番メニューを提案しています。');
+
+    return { phase, breakfast, lunch, dinner, snack, reasons };
   };
 
   // --- 計算 ---
@@ -391,6 +247,7 @@ ${upcomingMatches}
   const nextM = matches.find(m => new Date(m.date) >= new Date().setHours(0,0,0,0)) || null;
   const daysUntil = nextM ? Math.ceil((new Date(nextM.date) - new Date()) / (1000 * 60 * 60 * 24)) : null;
   const todayTotalCals = meals.filter(m => m.date === getTodayJST()).reduce((s, m) => s + (m.calories || 0), 0);
+  const dailyPlan = buildDailyPlan();
 
   const NavButton = ({ active, onClick, icon, label }) => (
     <button onClick={onClick} className={`flex flex-col items-center justify-center flex-1 transition-all ${active ? 'text-blue-600 scale-105 font-black' : 'text-slate-400 opacity-60'}`}>
@@ -526,92 +383,28 @@ ${upcomingMatches}
               );
             })()}
 
-            {activeTab === 'chat' && (
-              <div className="flex flex-col h-[calc(100vh-210px)] md:h-[630px] animate-in fade-in overflow-hidden">
-                <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-hide pb-4">
-                  {chatMessages.map((msg, i) => (
-                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[85%] p-4 rounded-3xl text-xs font-bold shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white text-slate-700 rounded-tl-none border border-slate-100'}`}>
-                        {msg.image && (
-                          <img src={msg.image} className="w-32 h-32 rounded-2xl object-cover mb-3" />
-                        )}
-                        {msg.isMealSuggestion && (
-                          <div className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded-full inline-block mb-2">献立相談</div>
-                        )}
-                        {msg.text}
-                      </div>
-                    </div>
-                  ))}
-                  {isAiProcessing && (
-                    <div className="flex justify-start">
-                      <div className="max-w-[85%] p-4 rounded-3xl text-xs font-bold shadow-sm bg-white text-slate-700 rounded-tl-none border border-slate-100 flex items-center gap-2">
-                        <Loader2 className="animate-spin w-4 h-4" />
-                        <span>入力中...</span>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-                <div className="mt-4 space-y-3">
-                  {chatImage && (
-                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl">
-                      <img src={chatImage} className="w-16 h-16 rounded-xl object-cover" />
-                      <div className="flex-1">
-                        <p className="text-xs font-black text-slate-600">冷蔵庫写真を添付</p>
-                        <button onClick={() => { setChatImage(null); setChatImageFile(null); }} className="text-xs text-red-500 hover:text-red-700">削除</button>
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex gap-2 bg-white p-2 rounded-[24px] border border-slate-100 shadow-lg">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files[0];
-                        if (file) {
-                          setChatImage(URL.createObjectURL(file));
-                          setChatImageFile(file);
-                        }
-                      }}
-                      className="hidden"
-                      id="chat-image-upload"
-                    />
-                    <label htmlFor="chat-image-upload" className="p-3 text-slate-400 hover:text-blue-500 cursor-pointer">
-                      <Camera className="w-4 h-4" />
-                    </label>
-                    <input
-                      type="text"
-                      value={chatInput}
-                      onChange={e => setChatInput(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && !isAiProcessing && sendChatMessage()}
-                      placeholder="栄養士に相談..."
-                      className="flex-1 bg-transparent border-none focus:ring-0 text-base px-3 font-bold"
-                      disabled={isAiProcessing}
-                    />
-                    <button
-                      onClick={() => setIsMealSuggestionMode(!isMealSuggestionMode)}
-                      className={`p-2 rounded-full ${isMealSuggestionMode ? 'bg-green-500 text-white' : 'text-slate-400 hover:text-green-500'}`}
-                      title="献立相談モード"
-                    >
-                      <Utensils className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={sendChatMessage}
-                      disabled={isAiProcessing}
-                      className="px-3 py-2 bg-blue-600 text-white rounded-full active:scale-95 disabled:opacity-50 flex items-center gap-1.5 min-w-[72px] justify-center"
-                      title="送信"
-                    >
-                      <Send className="w-4 h-4" />
-                      <span className="text-xs font-black">送信</span>
-                    </button>
+            {activeTab === 'planPlus' && (
+              <div className="space-y-4 animate-in fade-in">
+                <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-black text-slate-800 tracking-tight uppercase">Today Plan</h3>
+                    <span className="text-[10px] font-black px-3 py-1.5 rounded-full bg-blue-50 text-blue-600">{dailyPlan.phase}</span>
                   </div>
-                  {isMealSuggestionMode && (
-                    <div className="text-center">
-                      <p className="text-xs font-black text-green-600 bg-green-50 px-3 py-2 rounded-full inline-block">
-                        🍳 献立相談モード：写真は任意です（テキストだけでも相談できます）
-                      </p>
-                    </div>
-                  )}
+                  <div className="space-y-3 text-xs font-black text-slate-700">
+                    <div className="bg-slate-50 rounded-2xl p-3">朝: {dailyPlan.breakfast}</div>
+                    <div className="bg-slate-50 rounded-2xl p-3">昼: {dailyPlan.lunch}</div>
+                    <div className="bg-slate-50 rounded-2xl p-3">夜: {dailyPlan.dinner}</div>
+                    <div className="bg-green-50 rounded-2xl p-3 text-green-700">補食: {dailyPlan.snack}</div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-6">
+                  <h4 className="font-black text-slate-800 mb-3 uppercase tracking-tight">Reason</h4>
+                  <div className="space-y-2">
+                    {dailyPlan.reasons.map((reason, idx) => (
+                      <div key={idx} className="text-xs font-bold text-slate-600 bg-slate-50 rounded-2xl p-3">{reason}</div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -663,8 +456,8 @@ ${upcomingMatches}
         <nav className="shrink-0 bg-white border-t border-slate-100 px-3 h-20 flex items-center z-40 pb-5">
           <NavButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<Target className="w-5 h-5" />} label="HOME" />
           <NavButton active={activeTab === 'meals'} onClick={() => setActiveTab('meals')} icon={<Utensils className="w-5 h-5" />} label="MEALS" />
-          <NavButton active={activeTab === 'chat'} onClick={() => setActiveTab('chat')} icon={<MessageSquare className="w-5 h-5" />} label="CHAT" />
-          <NavButton active={activeTab === 'schedule'} onClick={() => setActiveTab('schedule')} icon={<Calendar className="w-5 h-5" />} label="PLAN" />
+          <NavButton active={activeTab === 'planPlus'} onClick={() => setActiveTab('planPlus')} icon={<Calendar className="w-5 h-5" />} label="PLAN+" />
+          <NavButton active={activeTab === 'schedule'} onClick={() => setActiveTab('schedule')} icon={<Clock className="w-5 h-5" />} label="PLAN" />
           <NavButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<User className="w-5 h-5" />} label="USER" />
         </nav>
 
