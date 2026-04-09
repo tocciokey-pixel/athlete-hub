@@ -46,6 +46,36 @@ const getDefaultInputs = () => ({
   match: { title: "", date: "", time: "", location: "" }
 });
 
+// --- 献立パターン定数 ---
+const MEAL_PATTERNS = {
+  exam_prep: {
+    breakfast: {
+      title: '脳を即起動！ブドウ糖朝食',
+      items: ['玄米ごはん 160g', 'サバの味噌煮 1切れ(80g)', '納豆 1パック(45g)', 'バナナヨーグルト 100g'],
+      ingredients: ['青魚(DHA)', '玄米(低GI)', 'バナナ(即効性糖質)', '納豆(レシチン)']
+    },
+    dinner: {
+      title: '記憶力定着！受験応援夕食',
+      items: ['豚肉の生姜焼き 120g', '冷奴 120g', 'ほうれん草の胡麻和え 80g', 'あさりの味噌汁 250ml', '白米 160g'],
+      ingredients: ['豚肉(ビタミンB1)', '大豆(レシチン)', 'あさり(鉄分)', 'ほうれん草(葉酸)']
+    }
+  },
+  late_night: {
+    dinner: {
+      title: '21時以降のリカバリー夕食',
+      items: ['タラの蒸し物 100g', '卵雑炊 or 柔らかいうどん 1玉', '蒸し温野菜 100g', '汁物 200ml'],
+      ingredients: ['白身魚(高タンパク・低脂質)', '卵(完全栄養)', '温野菜(消化しやすい)']
+    }
+  },
+  eating_out: {
+    dinner: {
+      title: '定食屋でのアスリート選択',
+      items: ['焼き魚定食 or 生姜焼き定食', '（揚げ物は避ける）', '冷奴 or サラダを追加注文'],
+      ingredients: ['良質なタンパク質', 'ビタミンB群', '食物繊維']
+    }
+  }
+};
+
 const App = () => {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -237,9 +267,13 @@ const App = () => {
   const analyzeMealPattern = () => {
     const recentNames = meals.slice(0, 10).map(m => (m.name || '').toLowerCase());
     const proteinLack = !recentNames.some(n => /(鶏|魚|卵|豆腐|納豆|ツナ|鮭|さば|肉|豚|牛)/.test(n));
-    const vegLack = !recentNames.some(n => /(野菜|サラダ|ブロッコリー|ほうれん草|キャベツ|トマト|きのこ)/.test(n));
+    const vegCount = recentNames.filter(n => /(野菜|サラダ|小鉢|ブロッコリー|ほうれん草|キャベツ|トマト|きのこ)/.test(n)).length;
+    const vegLack = vegCount <= 2;
+    const fatCount = recentNames.filter(n => /(揚げ物|カツ|天ぷら|ラーメン|ピザ|フライ|唐揚げ)/.test(n)).length;
+    const fatExcess = fatCount >= 3;
+    const ironLack = !recentNames.some(n => /(レバー|あさり|ほうれん草|赤身|ひじき|小松菜)/.test(n));
     const breakfastCount = meals.slice(0, 14).filter(m => (m.time || '00:00') < '10:30').length;
-    return { proteinLack, vegLack, breakfastLack: breakfastCount < 3 };
+    return { proteinLack, vegLack, fatExcess, ironLack, breakfastLack: breakfastCount < 3 };
   };
 
   const buildMeal = (time, title, items, ingredients) => ({ time, title, items, ingredients });
@@ -248,6 +282,17 @@ const App = () => {
     const weight = getWeightTrend();
     const mealPattern = analyzeMealPattern();
     const phase = getPlanPhase(daysUntil);
+
+    // ステップ①：プロフィールキーワード・現在時刻の取得（JST）
+    const points = (profile.improvementPoints || '').toLowerCase();
+    const lifestyle = (profile.lifestyle || '').toLowerCase();
+    const jstNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }));
+    const currentHour = jstNow.getHours();
+
+    // ステップ②：優先判定
+    const isLateNight = currentHour >= 21;
+    const isExamPrep = /(受験|勉強|合格|集中)/.test(points) || /(受験|勉強|合格|集中)/.test(lifestyle);
+    const isEatingOut = /(外食|定食)/.test(points) || /(外食|定食)/.test(lifestyle);
 
     const nextMatchTime = parseMinutes(nextM?.time);
     const isMatchDay = !!nextM && nextM.date === getTodayDateString();
@@ -364,6 +409,16 @@ const App = () => {
       };
     }
 
+    // ステップ③：MEAL_PATTERNSオーバーライド（フェーズ判定の後に適用）
+    if (isLateNight) {
+      dinner = buildMeal(dinner.time, MEAL_PATTERNS.late_night.dinner.title, MEAL_PATTERNS.late_night.dinner.items, MEAL_PATTERNS.late_night.dinner.ingredients);
+    } else if (isExamPrep) {
+      breakfast = buildMeal(breakfast.time, MEAL_PATTERNS.exam_prep.breakfast.title, MEAL_PATTERNS.exam_prep.breakfast.items, MEAL_PATTERNS.exam_prep.breakfast.ingredients);
+      dinner = buildMeal(dinner.time, MEAL_PATTERNS.exam_prep.dinner.title, MEAL_PATTERNS.exam_prep.dinner.items, MEAL_PATTERNS.exam_prep.dinner.ingredients);
+    } else if (isEatingOut) {
+      dinner = buildMeal(dinner.time, MEAL_PATTERNS.eating_out.dinner.title, MEAL_PATTERNS.eating_out.dinner.items, MEAL_PATTERNS.eating_out.dinner.ingredients);
+    }
+
     let matchDayGuide = null;
     if (isMatchDay) {
       if (nextMatchTime === null) {
@@ -393,11 +448,19 @@ const App = () => {
     const reasons = [
       phase === '調整期' ? '試合直前のため、消化しやすさを優先しています。' : phase === '準備期' ? '試合準備のため、エネルギー確保を重視しています。' : '通常期のため、体重管理と栄養バランスを重視しています。'
     ];
-    if (Math.abs(weight.diffToTarget) >= 0.5) reasons.push(`目標体重との差 ${weight.diffToTarget > 0 ? '+' : ''}${weight.diffToTarget.toFixed(1)}kg を反映しています。`);
-    if (Math.abs(weight.trend7d) >= 0.3) reasons.push(`直近7日トレンド ${weight.trend7d > 0 ? '+' : ''}${weight.trend7d.toFixed(1)}kg を考慮しています。`);
-    if (mealPattern.proteinLack) reasons.push('直近の記録でたんぱく質が少ないため、主菜を強化しています。');
-    if (mealPattern.vegLack) reasons.push('野菜不足を補うため、副菜を増やしています。');
-    if (mealPattern.breakfastLack) reasons.push('朝食欠食の傾向があるため、朝に簡単な定番メニューを提案しています。');
+    // パターン別アドバイス
+    if (isLateNight) reasons.push('21時を過ぎていますね。今は勉強のために「食べる」より、翌朝の「脳のパフォーマンス」のために「胃を休める」ことが優先です。');
+    if (isExamPrep) reasons.push('受験・勉強モードを検知！DHA・レシチン・ビタミンB1を意識した脳活性メニューに切り替えています。集中力を長時間維持できる食事で、ライバルに差をつけよう！');
+    if (isEatingOut) reasons.push('外食モードですね。揚げ物の単品（丼・麺）ではなく「定食＋小鉢」を選ぶだけで、タンパク質とビタミンのバランスが格段に上がります！');
+    // 体重トレンド
+    if (Math.abs(weight.diffToTarget) >= 0.5) reasons.push(`目標体重との差が ${weight.diffToTarget > 0 ? '+' : ''}${weight.diffToTarget.toFixed(1)}kg あります。ごはん量を調整して反映しています。`);
+    if (Math.abs(weight.trend7d) >= 0.3) reasons.push(`直近7日のトレンドが ${weight.trend7d > 0 ? '+' : ''}${weight.trend7d.toFixed(1)}kg。${weight.trend7d > 0 ? '増加傾向なので少し抑えめに。' : '減少傾向なので少し増やしています。'}`);
+    // 食事ログ解析
+    if (mealPattern.ironLack) reasons.push('最近の食事に鉄分が少ないようです。鉄分が足りないと脳に酸素が行き渡らず、あくびが増えたり集中力が切れたりするので、あさり・ほうれん草・赤身肉を意識して摂りましょう！');
+    if (mealPattern.fatExcess) reasons.push('最近、揚げ物やラーメンが多めです。脂質が多いと消化に血液を取られて集中力が落ちやすくなります。今日は消化の良いメニューに切り替えています！');
+    if (mealPattern.proteinLack) reasons.push('直近の記録でたんぱく質が少なめです。筋肉の修復と脳の神経伝達に必要なので、肉・魚・卵を毎食1品は意識しましょう。');
+    if (mealPattern.vegLack) reasons.push('野菜が直近10食で2回以下です。ビタミン・ミネラル不足は疲労回復を遅らせます。副菜を1品追加するだけで大きく変わります！');
+    if (mealPattern.breakfastLack) reasons.push('朝食の回数が少ない傾向があります。朝食を食べると午前中の集中力と体温が上がり、練習パフォーマンスが明確に変わります。まずは小さめでも続けてみて！');
 
     return { phase, breakfast, lunch, dinner, snack, reasons, matchDayGuide };
   };
@@ -643,11 +706,19 @@ const App = () => {
                   </div>
                 )}
 
-                <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-6">
-                  <h4 className="font-black text-slate-800 mb-3 uppercase tracking-tight">Reason</h4>
-                  <div className="space-y-2">
+                <div className="bg-gradient-to-br from-white to-blue-50 rounded-[32px] border border-blue-100 shadow-sm p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-blue-600 rounded-xl text-white">
+                      <Brain className="w-5 h-5" />
+                    </div>
+                    <h4 className="font-black text-slate-800 uppercase tracking-tighter">STUDY &amp; ATHLETE ADVISOR</h4>
+                  </div>
+                  <div className="space-y-4">
                     {dailyPlan.reasons.map((reason, idx) => (
-                      <div key={idx} className="text-xs font-bold text-slate-600 bg-slate-50 rounded-2xl p-3">{reason}</div>
+                      <div key={idx} className="relative pl-5">
+                        <span className="absolute left-0 top-1.5 w-2 h-2 bg-blue-400 rounded-full"></span>
+                        <p className="text-[13px] font-bold text-slate-600 leading-relaxed italic">&ldquo;{reason}&rdquo;</p>
+                      </div>
                     ))}
                   </div>
                 </div>
