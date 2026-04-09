@@ -54,7 +54,7 @@ const App = () => {
   const [inputs, setInputs] = useState({
     weight: { weight: "", date: getTodayJST() },
     meal: { name: "", calories: "", image: null, imageFile: null, date: getTodayJST(), time: getCurrentTimeJST() },
-    match: { title: "", date: "", location: "" }
+    match: { title: "", date: "", time: "", location: "" }
   });
 
   // UI管理
@@ -176,7 +176,7 @@ const App = () => {
     const defaultInputs = {
       weight: { weight: "", date: getTodayJST() },
       meal: { name: "", calories: "", image: null, imageFile: null, date: getTodayJST(), time: getCurrentTimeJST() },
-      match: { title: "", date: "", location: "" }
+      match: { title: "", date: "", time: "", location: "" }
     };
     setInputs(prev => ({ ...prev, [type]: defaultInputs[type] }));
   };
@@ -185,6 +185,23 @@ const App = () => {
     if (daysUntilMatch !== null && daysUntilMatch <= 2) return '調整期';
     if (daysUntilMatch !== null && daysUntilMatch <= 7) return '準備期';
     return '通常期';
+  };
+
+  const getTodayDateString = () => new Date().toISOString().slice(0, 10);
+
+  const parseMinutes = (hhmm) => {
+    if (!hhmm || !hhmm.includes(':')) return null;
+    const [h, m] = hhmm.split(':').map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  };
+
+  const formatMinutes = (minutes) => {
+    if (!Number.isFinite(minutes)) return '--:--';
+    const normalized = ((Math.round(minutes) % (24 * 60)) + 24 * 60) % (24 * 60);
+    const h = String(Math.floor(normalized / 60)).padStart(2, '0');
+    const m = String(normalized % 60).padStart(2, '0');
+    return `${h}:${m}`;
   };
 
   const getWeightTrend = () => {
@@ -204,30 +221,152 @@ const App = () => {
     return { proteinLack, vegLack, breakfastLack: breakfastCount < 3 };
   };
 
+  const buildMeal = (time, title, items, ingredients) => ({ time, title, items, ingredients });
+
   const buildDailyPlan = () => {
     const weight = getWeightTrend();
     const mealPattern = analyzeMealPattern();
     const phase = getPlanPhase(daysUntil);
 
-    const riceLevel = weight.diffToTarget > 1 ? '少なめ' : weight.diffToTarget < -1 ? '多め' : '標準';
+    const nextMatchTime = parseMinutes(nextM?.time);
+    const isMatchDay = !!nextM && nextM.date === getTodayDateString();
 
-    let breakfast = `ごはん(${riceLevel})・卵料理・味噌汁・果物`;
-    let lunch = '鶏むね丼・野菜小鉢・スープ';
-    let dinner = '魚定食・野菜2品・汁物';
-    let snack = 'ヨーグルト or バナナ';
+    const riceDelta = weight.diffToTarget > 1 ? -20 : weight.diffToTarget < -1 ? 20 : 0;
+    const baseRice = Math.max(120, 160 + riceDelta);
+    const prepRice = Math.max(140, 180 + riceDelta);
+
+    let breakfast = buildMeal(
+      '07:00',
+      'バランス朝食',
+      [
+        `ごはん ${baseRice}g`,
+        '卵焼き 1個(約60g)',
+        '納豆 1パック(45g)',
+        '味噌汁 1杯(250ml)',
+        'バナナ 1本(100g)'
+      ],
+      ['米', '卵', '納豆', '豆腐/わかめ', 'バナナ']
+    );
+
+    let lunch = buildMeal(
+      '12:30',
+      '鶏むね丼セット',
+      [
+        `ごはん ${baseRice + 20}g`,
+        '鶏むね肉 120g',
+        '温野菜 150g',
+        '具だくさんスープ 250ml'
+      ],
+      ['米', '鶏むね肉', 'ブロッコリー/にんじん', '玉ねぎ/きのこ']
+    );
+
+    let dinner = buildMeal(
+      '19:00',
+      '魚メイン定食',
+      [
+        `ごはん ${Math.max(120, baseRice - 10)}g`,
+        '鮭 100g',
+        '冷奴 120g',
+        '野菜副菜 150g',
+        '味噌汁 1杯(250ml)'
+      ],
+      ['米', '鮭', '豆腐', '葉物野菜', '味噌']
+    );
+
+    let snack = {
+      timing: '16:00 / 21:00',
+      options: [
+        'おにぎり 1個(100g)',
+        'inゼリー エネルギー 1個',
+        'バナナ 1本 + 牛乳200ml',
+        'カステラ 2切れ + 水'
+      ]
+    };
 
     if (phase === '準備期') {
-      breakfast = `ごはん(${riceLevel === '少なめ' ? '標準' : '多め'})・納豆・卵・味噌汁`;
-      lunch = '親子丼・サラダ・果物';
-      dinner = '鮭ごはん・ささみ副菜・温野菜';
-      snack = 'おにぎり小 + 牛乳';
+      breakfast = buildMeal(
+        '06:45',
+        'エネルギー強化朝食',
+        [`ごはん ${prepRice}g`, '納豆 1パック(45g)', '卵 1個(60g)', '味噌汁 250ml', 'ヨーグルト 100g'],
+        ['米', '納豆', '卵', '味噌', '乳製品']
+      );
+      lunch = buildMeal(
+        '12:30',
+        '親子丼セット',
+        [`ごはん ${prepRice + 20}g`, '鶏もも肉 120g', '卵 1個(60g)', 'サラダ 120g', '果物 100g'],
+        ['米', '鶏肉', '卵', '葉物野菜', '果物']
+      );
+      dinner = buildMeal(
+        '19:00',
+        '回復メニュー',
+        [`ごはん ${prepRice}g`, '鮭 100g', 'ささみ 80g', '温野菜 150g', 'スープ 250ml'],
+        ['米', '鮭', '鶏ささみ', 'ブロッコリー/にんじん', '玉ねぎ']
+      );
+      snack = {
+        timing: '15:30 / 20:30',
+        options: [
+          'おにぎり 1個(100g)',
+          'inゼリー エネルギー 1個',
+          'どら焼き 1個 + 牛乳200ml',
+          'あんパン 1個 + 水'
+        ]
+      };
     }
 
     if (phase === '調整期') {
-      breakfast = 'おかゆ・卵・味噌汁';
-      lunch = 'うどん + 鶏むね';
-      dinner = `白米(${riceLevel === '多め' ? '標準' : riceLevel})・白身魚・消化の良い副菜`;
-      snack = 'カステラ少量 + 水分補給';
+      breakfast = buildMeal(
+        '07:00',
+        '消化優先朝食',
+        ['おかゆ 250g', '卵 1個(60g)', '味噌汁 200ml', 'バナナ 1本(100g)'],
+        ['米', '卵', '味噌', 'バナナ']
+      );
+      lunch = buildMeal(
+        '12:00',
+        '消化しやすい昼食',
+        ['うどん 1玉(250g)', '鶏むね肉 90g', 'ほうれん草 60g', '汁 250ml'],
+        ['うどん', '鶏むね肉', 'ほうれん草', 'だし']
+      );
+      dinner = buildMeal(
+        '18:30',
+        '前日調整夕食',
+        [`白米 ${Math.max(130, baseRice)}g`, '白身魚 100g', '豆腐 100g', 'にんじん 60g', '汁物 200ml'],
+        ['米', '白身魚', '豆腐', 'にんじん', '味噌']
+      );
+      snack = {
+        timing: '15:00 / 20:00',
+        options: [
+          'inゼリー エネルギー 1個',
+          'おにぎり(塩) 1個(100g)',
+          'カステラ 2切れ',
+          'スポーツドリンク 300ml'
+        ]
+      };
+    }
+
+    let matchDayGuide = null;
+    if (isMatchDay) {
+      if (nextMatchTime === null) {
+        matchDayGuide = {
+          title: '試合日タイムテーブル',
+          note: '試合時刻が未登録です。予定に時刻を入れると食事時刻を自動計算します。',
+          timeline: [
+            { label: '試合4時間前', time: '（試合時刻未設定）', plan: '主食中心の食事をしっかり' },
+            { label: '試合2時間前', time: '（試合時刻未設定）', plan: 'おにぎり or inゼリーで補食' },
+            { label: '試合後30分以内', time: '（試合時刻未設定）', plan: '牛乳 + バナナで回復開始' }
+          ]
+        };
+      } else {
+        matchDayGuide = {
+          title: `試合日タイムテーブル（試合 ${nextM.time} 開始）`,
+          note: '試合時刻から逆算した推奨です。',
+          timeline: [
+            { label: '試合4時間前', time: formatMinutes(nextMatchTime - 240), plan: 'ごはん200g + 鶏むね100g + 味噌汁' },
+            { label: '試合2時間前', time: formatMinutes(nextMatchTime - 120), plan: 'おにぎり1個 or inゼリー1個' },
+            { label: '試合60分前', time: formatMinutes(nextMatchTime - 60), plan: 'スポドリ200-300ml' },
+            { label: '試合後30分以内', time: formatMinutes(nextMatchTime + 30), plan: '牛乳200ml + バナナ1本' }
+          ]
+        };
+      }
     }
 
     const reasons = [
@@ -239,7 +378,7 @@ const App = () => {
     if (mealPattern.vegLack) reasons.push('野菜不足を補うため、副菜を増やしています。');
     if (mealPattern.breakfastLack) reasons.push('朝食欠食の傾向があるため、朝に簡単な定番メニューを提案しています。');
 
-    return { phase, breakfast, lunch, dinner, snack, reasons };
+    return { phase, breakfast, lunch, dinner, snack, reasons, matchDayGuide };
   };
 
   // --- 計算 ---
@@ -390,13 +529,53 @@ const App = () => {
                     <h3 className="font-black text-slate-800 tracking-tight uppercase">Today Plan</h3>
                     <span className="text-[10px] font-black px-3 py-1.5 rounded-full bg-blue-50 text-blue-600">{dailyPlan.phase}</span>
                   </div>
-                  <div className="space-y-3 text-xs font-black text-slate-700">
-                    <div className="bg-slate-50 rounded-2xl p-3">朝: {dailyPlan.breakfast}</div>
-                    <div className="bg-slate-50 rounded-2xl p-3">昼: {dailyPlan.lunch}</div>
-                    <div className="bg-slate-50 rounded-2xl p-3">夜: {dailyPlan.dinner}</div>
-                    <div className="bg-green-50 rounded-2xl p-3 text-green-700">補食: {dailyPlan.snack}</div>
+                  {[dailyPlan.breakfast, dailyPlan.lunch, dailyPlan.dinner].map((meal, idx) => (
+                    <div key={idx} className="bg-slate-50 rounded-2xl p-4 mb-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-black text-slate-800">{meal.title}</p>
+                        <span className="text-[10px] font-black text-blue-600 bg-blue-100 px-2 py-1 rounded-full">{meal.time}</span>
+                      </div>
+                      <p className="text-[10px] font-black text-slate-400 mb-1 uppercase">献立（グラム目安）</p>
+                      <ul className="space-y-1 mb-2">
+                        {meal.items.map((item, i) => (
+                          <li key={i} className="text-xs font-bold text-slate-700">・{item}</li>
+                        ))}
+                      </ul>
+                      <p className="text-[10px] font-black text-slate-400 mb-1 uppercase">おすすめ具材</p>
+                      <p className="text-xs font-bold text-slate-600">{meal.ingredients.join(' / ')}</p>
+                    </div>
+                  ))}
+
+                  <div className="bg-green-50 rounded-2xl p-4 text-green-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-black">補食（高校生向け・手軽）</p>
+                      <span className="text-[10px] font-black bg-green-200 px-2 py-1 rounded-full">{dailyPlan.snack.timing}</span>
+                    </div>
+                    <ul className="space-y-1">
+                      {dailyPlan.snack.options.map((item, i) => (
+                        <li key={i} className="text-xs font-bold">・{item}</li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
+
+                {dailyPlan.matchDayGuide && (
+                  <div className="bg-orange-50 rounded-[32px] border border-orange-100 shadow-sm p-6">
+                    <h4 className="font-black text-orange-800 mb-1 uppercase tracking-tight">{dailyPlan.matchDayGuide.title}</h4>
+                    <p className="text-xs font-bold text-orange-700 mb-3">{dailyPlan.matchDayGuide.note}</p>
+                    <div className="space-y-2">
+                      {dailyPlan.matchDayGuide.timeline.map((slot, idx) => (
+                        <div key={idx} className="bg-white rounded-2xl p-3 border border-orange-100">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-xs font-black text-slate-700">{slot.label}</span>
+                            <span className="text-[10px] font-black text-orange-700">{slot.time}</span>
+                          </div>
+                          <p className="text-xs font-bold text-slate-600">{slot.plan}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-6">
                   <h4 className="font-black text-slate-800 mb-3 uppercase tracking-tight">Reason</h4>
@@ -419,7 +598,7 @@ const App = () => {
                         <span className="text-[10px] text-blue-600 uppercase leading-none mb-1">{new Date(m.date).getMonth()+1}月</span>
                         <span className="text-2xl text-slate-800">{new Date(m.date).getDate()}</span>
                       </div>
-                      <div className="flex-1 min-w-0"><h4 className="font-black text-slate-700 truncate">{m.title}</h4><p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-wider">{m.location || 'No location'}</p></div>
+                      <div className="flex-1 min-w-0"><h4 className="font-black text-slate-700 truncate">{m.title}</h4><p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-wider">{m.time || '--:--'} / {m.location || 'No location'}</p></div>
                       <div className="flex gap-1 shrink-0">
                         <button onClick={() => openEditModal('match', m)} className="p-2 text-slate-300 hover:text-blue-500 active:scale-75 transition-all"><Edit3 className="w-4 h-4" /></button>
                         <button onClick={() => deleteItem('match', m.id)} className="p-2 text-slate-300 hover:text-red-500 active:scale-75 transition-all"><Trash2 className="w-4 h-4" /></button>
@@ -497,7 +676,7 @@ const App = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <input type="date" value={inputs.meal.date} onChange={e => setInputs({...inputs, meal: {...inputs.meal, date: e.target.value}})} className="p-4 bg-slate-100 rounded-2xl font-black text-xs" />
-                      <input type="time" value={inputs.meal.time} onChange={e => setInputs({...inputs, meal: {...inputs.meal, time: e.target.value}})} className="p-4 bg-slate-100 rounded-2xl font-black text-xs" />
+                  return { phase, breakfast, lunch, dinner, snack, reasons, matchDayGuide };
                     </div>
                     <input type="text" value={inputs.meal.name} onChange={e => setInputs({...inputs, meal: {...inputs.meal, name: e.target.value}})} className="w-full p-4 bg-slate-100 rounded-2xl font-black text-base" placeholder="Menu name" />
                     <button onClick={handleSaveMeal} className="w-full py-5 bg-blue-600 text-white font-black rounded-3xl uppercase tracking-widest text-sm active:scale-95 shadow-lg">SAVE MEAL</button>
@@ -506,7 +685,10 @@ const App = () => {
 
                 {modalType === 'match' && (
                   <>
-                    <input type="date" value={inputs.match.date} onChange={e => setInputs({...inputs, match: {...inputs.match, date: e.target.value}})} className="w-full p-4 bg-slate-100 rounded-2xl font-black text-base" />
+                    <div className="grid grid-cols-2 gap-3">
+                      <input type="date" value={inputs.match.date} onChange={e => setInputs({...inputs, match: {...inputs.match, date: e.target.value}})} className="w-full p-4 bg-slate-100 rounded-2xl font-black text-base" />
+                      <input type="time" value={inputs.match.time || ''} onChange={e => setInputs({...inputs, match: {...inputs.match, time: e.target.value}})} className="w-full p-4 bg-slate-100 rounded-2xl font-black text-base" />
+                    </div>
                     <input type="text" value={inputs.match.title} onChange={e => setInputs({...inputs, match: {...inputs.match, title: e.target.value}})} className="w-full p-4 bg-slate-100 rounded-2xl font-black text-base" placeholder="Match title" />
                     <input type="text" value={inputs.match.location} onChange={e => setInputs({...inputs, match: {...inputs.match, location: e.target.value}})} className="w-full p-4 bg-slate-100 rounded-2xl font-black text-base" placeholder="Location" />
                     <button onClick={handleSaveMatch} className="w-full py-5 bg-blue-600 text-white font-black rounded-3xl uppercase tracking-widest text-sm active:scale-95 shadow-lg">SAVE PLAN</button>
