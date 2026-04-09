@@ -742,7 +742,7 @@ const App = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <input type="date" value={inputs.meal.date} onChange={e => setInputs({...inputs, meal: {...inputs.meal, date: e.target.value}})} className="p-4 bg-slate-100 rounded-2xl font-black text-xs" />
-                  return { phase, breakfast, lunch, dinner, snack, reasons, matchDayGuide };
+                      <input type="time" value={inputs.meal.time || ''} onChange={e => setInputs({...inputs, meal: {...inputs.meal, time: e.target.value}})} className="p-4 bg-slate-100 rounded-2xl font-black text-xs" />
                     </div>
                     <input type="text" value={inputs.meal.name} onChange={e => setInputs({...inputs, meal: {...inputs.meal, name: e.target.value}})} className="w-full p-4 bg-slate-100 rounded-2xl font-black text-base" placeholder="Menu name" />
                     <button onClick={handleSaveMeal} className="w-full py-5 bg-blue-600 text-white font-black rounded-3xl uppercase tracking-widest text-sm active:scale-95 shadow-lg">SAVE MEAL</button>
