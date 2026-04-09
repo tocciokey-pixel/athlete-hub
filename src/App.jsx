@@ -40,6 +40,12 @@ const getCurrentTimeJST = () => {
   return `${hours}:${minutes}`;
 };
 
+const getDefaultInputs = () => ({
+  weight: { weight: "", date: getTodayJST() },
+  meal: { name: "", calories: "", image: null, imageFile: null, date: getTodayJST(), time: getCurrentTimeJST() },
+  match: { title: "", date: "", time: "", location: "" }
+});
+
 const App = () => {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -51,11 +57,7 @@ const App = () => {
   const [matches, setMatches] = useState([]);
 
   // 入力フォーム（下書き機能のために一括管理）
-  const [inputs, setInputs] = useState({
-    weight: { weight: "", date: getTodayJST() },
-    meal: { name: "", calories: "", image: null, imageFile: null, date: getTodayJST(), time: getCurrentTimeJST() },
-    match: { title: "", date: "", time: "", location: "" }
-  });
+  const [inputs, setInputs] = useState(getDefaultInputs());
 
   // UI管理
   const [modalType, setModalType] = useState(null);
@@ -87,7 +89,16 @@ const App = () => {
 
     // プロフィール & 下書き復元
     getDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile')).then(snap => snap.exists() && setProfile(snap.data()));
-    getDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'drafts')).then(snap => snap.exists() && setInputs(prev => ({ ...prev, ...snap.data() })));
+    getDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'drafts')).then(snap => {
+      if (!snap.exists()) return;
+      const raw = snap.data() || {};
+      setInputs(prev => ({
+        ...prev,
+        weight: { ...prev.weight, ...(raw.weight && typeof raw.weight === 'object' ? raw.weight : {}) },
+        meal: { ...prev.meal, ...(raw.meal && typeof raw.meal === 'object' ? raw.meal : {}) },
+        match: { ...prev.match, ...(raw.match && typeof raw.match === 'object' ? raw.match : {}) }
+      }));
+    });
 
     // 体重 (古い順：グラフ用)
     const unsubWeights = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'weights'), (snap) => {
@@ -187,11 +198,7 @@ const App = () => {
     setEditingItem(null);
     setModalType(type);
     // 新規登録時はフォームをリセット
-    const defaultInputs = {
-      weight: { weight: "", date: getTodayJST() },
-      meal: { name: "", calories: "", image: null, imageFile: null, date: getTodayJST(), time: getCurrentTimeJST() },
-      match: { title: "", date: "", time: "", location: "" }
-    };
+    const defaultInputs = getDefaultInputs();
     setInputs(prev => ({ ...prev, [type]: defaultInputs[type] }));
   };
 
@@ -679,7 +686,7 @@ const App = () => {
                 {modalType === 'meal' && (
                   <>
                     <div className="flex justify-center relative">
-                      <div className="w-32 h-32 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center overflow-hidden relative group cursor-pointer" onClick={() => fileInputRef.current.click()}>
+                      <div className="w-32 h-32 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center overflow-hidden relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                         {inputs.meal.image ? (
                           <img src={inputs.meal.image} className="w-full h-full object-cover" />
                         ) : (
