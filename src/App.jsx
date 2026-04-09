@@ -98,7 +98,21 @@ const App = () => {
     // 食事 (新しい順：履歴用)
     const unsubMeals = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'meals'), (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setMeals(data.sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`)));
+      const normalized = data
+        .filter(m => m && typeof m === 'object')
+        .map(m => ({
+          ...m,
+          date: typeof m.date === 'string' && m.date ? m.date : getTodayJST(),
+          time: typeof m.time === 'string' && m.time ? m.time : '00:00',
+          name: typeof m.name === 'string' ? m.name : '',
+          image: typeof m.image === 'string' ? m.image : null
+        }));
+
+      setMeals(normalized.sort((a, b) => {
+        const bTime = new Date(`${b.date}T${b.time}`).getTime();
+        const aTime = new Date(`${a.date}T${a.time}`).getTime();
+        return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+      }));
     }, err => console.error(err));
 
     // 予定 (新しい順)
@@ -505,18 +519,18 @@ const App = () => {
                           <div className="px-1 py-3 flex justify-between items-center border-b-2 border-slate-200">
                             <span className="font-black text-slate-700 text-sm uppercase">{dateStr}</span>
                           </div>
-                          {dayMeals.sort((a, b) => String(b?.time ?? '00:00').localeCompare(String(a?.time ?? '00:00'))).map(m => (
-                            <div key={m.id} className="bg-white p-4 rounded-3xl flex items-center justify-between border border-slate-100 shadow-sm group hover:shadow-md transition-shadow">
+                          {dayMeals.sort((a, b) => String(b?.time ?? '00:00').localeCompare(String(a?.time ?? '00:00'))).map((m, i) => (
+                            <div key={m?.id || `${date}-${i}`} className="bg-white p-4 rounded-3xl flex items-center justify-between border border-slate-100 shadow-sm group hover:shadow-md transition-shadow">
                               <div className="flex items-center gap-4">
-                                {m.image ? <img src={m.image} className="w-14 h-14 rounded-2xl object-cover" /> : <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center text-green-600"><Utensils className="w-5 h-5" /></div>}
+                                {m?.image ? <img src={m.image} className="w-14 h-14 rounded-2xl object-cover" /> : <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center text-green-600"><Utensils className="w-5 h-5" /></div>}
                                 <div>
                                   <div className="text-[9px] font-black text-slate-300 uppercase">{String(m?.time ?? '--:--')}</div>
-                                  <p className="text-sm font-black text-slate-700 leading-tight">{m.name || '記録なし'}</p>
+                                  <p className="text-sm font-black text-slate-700 leading-tight">{m?.name || '記録なし'}</p>
                                 </div>
                               </div>
                               <div className="flex gap-1 shrink-0">
                                 <button onClick={() => openEditModal('meal', m)} className="p-2 text-slate-300 hover:text-blue-500 active:scale-75 transition-all"><Edit3 className="w-4 h-4" /></button>
-                                <button onClick={() => deleteItem('meal', m.id)} className="p-2 text-slate-300 hover:text-red-500 active:scale-75 transition-all"><Trash2 className="w-4 h-4" /></button>
+                                <button onClick={() => m?.id && deleteItem('meal', m.id)} className="p-2 text-slate-300 hover:text-red-500 active:scale-75 transition-all"><Trash2 className="w-4 h-4" /></button>
                               </div>
                             </div>
                           ))}
