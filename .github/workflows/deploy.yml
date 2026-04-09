@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:  # 手動実行を追加
 
 permissions:
   contents: read
@@ -47,6 +48,7 @@ jobs:
         uses: actions/upload-pages-artifact@v4
         with:
           path: ./dist
+          name: github-pages-${{ github.run_number }}  # ユニークな名前を付ける
 
   deploy:
     environment:
